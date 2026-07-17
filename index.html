@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMB Control Panel</title>
+    <style>
+        :root { --primary: #a855f7; --bg: #000000; --card: #0d0d0d; --text: #ffffff; }
+        body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; }
+        .container { max-width: 500px; margin: auto; }
+        .card { background: var(--card); border: 1px solid #1a1a1a; border-radius: 16px; padding: 20px; margin-bottom: 15px; position: relative; overflow: hidden; }
+        .glow-ring { position: absolute; width: 150%; height: 150%; top: -25%; left: -25%; background: radial-gradient(circle at 40% 30%, rgba(168, 85, 247, 0.12), transparent 70%); pointer-events: none; border-radius: 50%; }
+        
+        h2 { margin: 0 0 15px; font-size: 18px; color: var(--primary); }
+        #number { font-size: 40px; font-weight: bold; text-align: center; margin: 10px 0; }
+        
+        .grid-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn { background: #1a1a1a; border: 1px solid #333; color: white; padding: 12px; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .btn:active { background: var(--primary); transform: scale(0.98); }
+        
+        input { width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 10px; margin-bottom: 8px; box-sizing: border-box; }
+        
+        .player-row { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #1a1a1a; align-items: center; }
+        .status { font-size: 11px; font-weight: bold; padding: 5px 10px; border-radius: 8px; }
+        .done { color: #22c55e; background: rgba(34,197,94,0.1); }
+        .pending { color: #fbbf24; background: rgba(251,191,36,0.1); }
+        .failed { color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid #ef4444; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- کۆنترۆڵی ژمارە -->
+    <div class="card">
+        <div class="glow-ring"></div>
+        <h2>📈 کۆنترۆڵی KMB</h2>
+        <div id="number">...</div>
+        <div class="grid-controls">
+            <button class="btn" onclick="update(5)">+5</button>
+            <button class="btn" onclick="update(1)">+1</button>
+            <button class="btn" onclick="update(-5)">-5</button>
+            <button class="btn" onclick="update(-1)">-1</button>
+        </div>
+    </div>
+
+    <!-- ڕێکخستنی ئەرک -->
+    <div class="card">
+        <h2>🎯 ئەرکی نوێ دابنێ</h2>
+        <input type="number" id="missionTarget" placeholder="ئامانج (خاڵ)">
+        <div style="display: flex; gap: 5px;">
+            <input type="number" id="missionStart" placeholder="دەستپێک">
+            <input type="number" id="missionEnd" placeholder="کۆتایی">
+        </div>
+        <button class="btn" style="width:100%; background:var(--primary);" onclick="saveDailyMission()">پاشەکەوتکردن (ڕیسێتکردنی دۆخەکان)</button>
+    </div>
+
+    <!-- لیست -->
+    <h3 style="font-size: 14px; color: #a1a1aa;">باری یاریزانەکان:</h3>
+    <div id="playersStatusList" class="card">
+        <div style="text-align: center; color: #666; padding: 20px;">چاوەڕێی داتا...</div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyBOkQ3BOGpFnVuYo1664QvsOh1FO36VvW4",
+        databaseURL: "https://mybfj-6b83d-default-rtdb.firebaseio.com",
+        projectId: "mybfj-6b83d"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    db.ref('global_count').on('value', s => document.getElementById('number').innerText = s.val() || 0);
+    db.ref('daily_mission').on('value', snap => { window.currentMission = snap.val(); loadPlayersStatus(); });
+    db.ref('device_missions').on('value', () => loadPlayersStatus());
+
+    function update(val) { 
+        db.ref('global_count').once('value', s => db.ref('/').update({ global_count: (s.val()||0) + val })); 
+    }
+
+    function saveDailyMission() {
+        const target = parseInt(document.getElementById('missionTarget').value);
+        const start = parseInt(document.getElementById('missionStart').value);
+        const end = parseInt(document.getElementById('missionEnd').value);
+
+        // نوێکردنەوەی ئەرک
+        db.ref('daily_mission').set({ target_score: target, start_hour: start, end_hour: end });
+
+        // تەنها ڕیسێتکردنی دۆخی تەواوبوون (completed: false) بەبێ سڕینەوەی یاریزان
+        db.ref('device_missions').once('value', (snapshot) => {
+            let updates = {};
+            snapshot.forEach((child) => {
+                updates[child.key + '/completed'] = false;
+            });
+            db.ref('device_missions').update(updates);
+        });
+        alert("ئەرکەکە نوێکرایەوە و باری یاریزانەکان ڕیسێت کرا!");
+    }
+
+    function loadPlayersStatus() {
+        const list = document.getElementById('playersStatusList');
+        db.ref('device_missions').once('value', (snapshot) => {
+            list.innerHTML = '';
+            const currentHour = new Date().getHours();
+            const endHour = window.currentMission ? window.currentMission.end_hour : 24;
+
+            snapshot.forEach((child) => {
+                const data = child.val();
+                let status = "pending", text = "⏳ هێشتا نەیکردوە";
+
+                if (data.completed) { 
+                    status = "done"; text = "✅ تەواو"; 
+                } else if (currentHour >= endHour) { 
+                    status = "failed"; text = "❌ نەیکردوە";
+                }
+
+                list.innerHTML += `
+                    <div class="player-row">
+                        <span>${data.name || "یاریزان"}</span>
+                        <span class="status ${status}">${text}</span>
+                    </div>`;
+            });
+        });
+    }
+</script>
+</body>
+</html>
